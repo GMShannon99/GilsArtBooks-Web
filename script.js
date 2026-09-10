@@ -133,7 +133,7 @@
     if (!pageFlip) return;
     var current = pageFlip.getCurrentPageIndex() + 1;
     indicatorEl.textContent = current + " / " + TOTAL_PAGES;
-    prevBtn.disabled = current <= 1;
+    prevBtn.disabled = false;
     nextBtn.disabled = false;
   }
 
@@ -144,6 +144,15 @@
       return;
     }
     pageFlip.flipNext();
+  }
+
+  function goPrev() {
+    if (!pageFlip) return;
+    if (pageFlip.getCurrentPageIndex() <= 0) {
+      goToMenu();
+      return;
+    }
+    pageFlip.flipPrev();
   }
 
   function mount(layout, restoreIndex) {
@@ -228,9 +237,7 @@
   window.addEventListener("resize", handleResize);
   window.addEventListener("orientationchange", handleResize);
 
-  prevBtn.addEventListener("click", function () {
-    if (pageFlip) pageFlip.flipPrev();
-  });
+  prevBtn.addEventListener("click", goPrev);
 
   nextBtn.addEventListener("click", goNext);
 
@@ -239,7 +246,7 @@
     if (e.key === "ArrowRight" || e.key === "PageDown") {
       goNext();
     } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
-      pageFlip.flipPrev();
+      goPrev();
     } else if (e.key === "Home") {
       pageFlip.turnToPage(0);
     } else if (e.key === "End") {
