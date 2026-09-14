@@ -18,14 +18,27 @@ cropping or distortion.
   image dimensions). Volume 3 has two extra pages (`pg011b.jpg`,
   `pg015b.jpg`) inserted into its sequence; see the comments in that
   file for the exact ordering.
-- `books/vol1` .. `books/vol4` &mdash; the source JPGs for each volume,
-  copied in unmodified.
+- `books/vol1` .. `books/vol4` &mdash; the web-display JPGs for each
+  volume: resized to a max of 1600px on the long side, re-encoded at
+  JPEG quality 78, and given a low-opacity tiled "&copy; Gil" watermark
+  covering the full frame (a light deterrent against uncredited reuse
+  that can't be cropped out). These are what's served on the live site.
+- `originals/vol1` .. `originals/vol4` &mdash; the full-resolution
+  source JPGs, gitignored and kept local-only (not part of the
+  deployed site).
+- `scripts/generate_display_images.py` &mdash; regenerates `books/` from
+  `originals/` (resize, watermark, re-encode). Run from the repo root
+  with `python scripts/generate_display_images.py` after adding or
+  replacing anything in `originals/`.
 - Page numbers (starting at 1 on the first content page after the
   cover) are overlaid at render time in `script.js` &mdash; the source
   JPGs are never modified.
 - After the last page of a volume, a generated page reads "Turn the
   page to return to the Main Menu"; turning past it (or clicking it)
-  returns to `index.html`.
+  returns to `index.html`. Flipping backward from the cover (the
+  Previous button, left arrow, or Page Up) returns to `index.html` too
+  &mdash; both directions are dead ends otherwise, so both exit the
+  same way.
 
 ## Local preview
 
