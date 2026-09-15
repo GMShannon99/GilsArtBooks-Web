@@ -14,6 +14,10 @@
   var nextBtn = document.getElementById("next-btn");
   var indicatorEl = document.getElementById("page-indicator");
   var titleEl = document.getElementById("title");
+  var videoOverlayEl = document.getElementById("video-overlay");
+  var hotspotVideoEl = document.getElementById("hotspot-video");
+  var videoCloseBtn = document.getElementById("video-close-btn");
+  var videoOverlayOpen = false;
 
   if (!config) {
     loadingEl.innerHTML = '<div>Book not found. <a href="index.html" style="color:#e8e6e1;">Return to Main Menu</a></div>';
@@ -111,6 +115,44 @@
       num.className = "page-number";
       num.textContent = String(def.number);
       surface.appendChild(num);
+
+      var hotspots = config.hotspots && config.hotspots[def.number];
+      if (hotspots) {
+        hotspots.forEach(function (hs) {
+          var spot = document.createElement("div");
+          spot.className = "page-hotspot";
+          spot.style.left = hs.left + "%";
+          spot.style.top = hs.top + "%";
+          spot.style.width = hs.width + "%";
+          spot.style.height = hs.height + "%";
+          spot.setAttribute("role", "button");
+          spot.setAttribute("tabindex", "0");
+          spot.setAttribute("aria-label", hs.label || "Play video");
+          // StPageFlip listens for mousedown/touchstart on the book (to
+          // start a click-to-turn-page gesture) and for mouseup/touchend
+          // on window (to finish it), so all four need to be stopped here
+          // - stopping only "click" is too late and lets the page turn
+          // silently underneath the video overlay.
+          ["mousedown", "touchstart", "mouseup", "touchend"].forEach(function (type) {
+            spot.addEventListener(type, function (e) {
+              e.stopPropagation();
+            });
+          });
+          spot.addEventListener("click", function (e) {
+            e.stopPropagation();
+            openVideo(hs.video);
+          });
+          spot.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              openVideo(hs.video);
+            }
+          });
+          surface.appendChild(spot);
+        });
+      }
+
       div.appendChild(surface);
     } else if (def.kind === "instructions") {
       div.className = "page page-instructions";
@@ -129,6 +171,27 @@
     window.location.href = "index.html";
   }
 
+  function openVideo(src) {
+    hotspotVideoEl.src = src;
+    hotspotVideoEl.loop = true;
+    videoOverlayEl.classList.remove("hidden");
+    videoOverlayOpen = true;
+    hotspotVideoEl.currentTime = 0;
+    hotspotVideoEl.play().catch(function () {
+      /* ignore autoplay rejection */
+    });
+  }
+
+  function closeVideo() {
+    videoOverlayEl.classList.add("hidden");
+    videoOverlayOpen = false;
+    hotspotVideoEl.pause();
+    hotspotVideoEl.removeAttribute("src");
+    hotspotVideoEl.load();
+  }
+
+  videoCloseBtn.addEventListener("click", closeVideo);
+
   function updateIndicator() {
     if (!pageFlip) return;
     var current = pageFlip.getCurrentPageIndex() + 1;
@@ -138,7 +201,7 @@
   }
 
   function goNext() {
-    if (!pageFlip) return;
+    if (!pageFlip || videoOverlayOpen) return;
     if (pageFlip.getCurrentPageIndex() >= LAST_INDEX) {
       goToMenu();
       return;
@@ -147,7 +210,7 @@
   }
 
   function goPrev() {
-    if (!pageFlip) return;
+    if (!pageFlip || videoOverlayOpen) return;
     if (pageFlip.getCurrentPageIndex() <= 0) {
       goToMenu();
       return;
@@ -242,6 +305,12 @@
   nextBtn.addEventListener("click", goNext);
 
   document.addEventListener("keydown", function (e) {
+    if (videoOverlayOpen) {
+      if (e.key === "Escape") {
+        closeVideo();
+      }
+      return;
+    }
     if (!pageFlip) return;
     if (e.key === "ArrowRight" || e.key === "PageDown") {
       goNext();

@@ -63,6 +63,22 @@ window.VOLUMES = [
       "pg011.jpg", "pg012.jpg", "pg013.jpg", "pg014.jpg", "pg015.jpg",
       "pg016.jpg", "pg017.jpg", "pg018.jpg", "pg019.jpg", "pg020.jpg",
       "pg021.jpg"
-    ]
+    ],
+    // Clickable regions overlaid on specific content pages, keyed by
+    // displayed page number. The region coordinates are percentages of
+    // the page image's width/height, matched to the existing artwork
+    // (no separate icon is drawn on top of it).
+    hotspots: {
+      14: [
+        {
+          left: 66.63,
+          top: 50.86,
+          width: 29.06,
+          height: 45.45,
+          video: "assets/videos/HandCupMovie.mp4",
+          label: "Play video of the hand-held cup collage"
+        }
+      ]
+    }
   }
 ];
