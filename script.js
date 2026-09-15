@@ -133,13 +133,32 @@
           // on window (to finish it), so all four need to be stopped here
           // - stopping only "click" is too late and lets the page turn
           // silently underneath the video overlay.
-          ["mousedown", "touchstart", "mouseup", "touchend"].forEach(function (type) {
-            spot.addEventListener(type, function (e) {
-              e.stopPropagation();
-            });
+          var touchActivated = false;
+          spot.addEventListener("mousedown", function (e) {
+            e.stopPropagation();
+          });
+          spot.addEventListener("mouseup", function (e) {
+            e.stopPropagation();
+          });
+          spot.addEventListener("touchstart", function (e) {
+            e.stopPropagation();
+          });
+          spot.addEventListener("touchend", function (e) {
+            // preventDefault here (rather than relying on the browser's
+            // synthetic click that normally follows a tap) because
+            // stopping propagation on touch events suppresses that
+            // synthetic click in some browsers, silently swallowing taps.
+            e.stopPropagation();
+            e.preventDefault();
+            touchActivated = true;
+            openVideo(hs.video);
           });
           spot.addEventListener("click", function (e) {
             e.stopPropagation();
+            if (touchActivated) {
+              touchActivated = false;
+              return;
+            }
             openVideo(hs.video);
           });
           spot.addEventListener("keydown", function (e) {
