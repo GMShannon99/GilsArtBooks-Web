@@ -18,6 +18,61 @@
   var hotspotVideoEl = document.getElementById("hotspot-video");
   var videoCloseBtn = document.getElementById("video-close-btn");
   var videoOverlayOpen = false;
+  var zoomOverlayEl = document.getElementById("zoom-overlay");
+  var zoomFrameEl = document.getElementById("zoom-frame");
+  var printBtn = document.getElementById("print-btn");
+  var printFrameEl = document.getElementById("print-frame");
+  var printStatusEl = document.getElementById("print-status");
+  var currentPrintBlob = null;
+  var printStatusTimer = null;
+  var zoomOpen = false;
+
+  // Visible, on-screen confirmation of each step of a print/share attempt -
+  // window.print()'s mobile behavior is inconsistent enough (silent no-ops
+  // on some Android builds and in standalone/home-screen mode) that console
+  // logs alone aren't enough to diagnose from a phone that isn't attached
+  // to a debugger.
+  function showPrintStatus(msg) {
+    console.log("[print]", msg);
+    printStatusEl.textContent = msg;
+    printStatusEl.classList.add("visible");
+    clearTimeout(printStatusTimer);
+    printStatusTimer = setTimeout(function () {
+      printStatusEl.classList.remove("visible");
+    }, 4000);
+  }
+
+  // Feature-detects whether navigator.share() can share an image file (Web
+  // Share API level 2).
+  function canShareFiles() {
+    if (!window.navigator || !navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([new Blob(["x"], { type: "image/jpeg" })], "probe.jpg", {
+        type: "image/jpeg"
+      });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Desktop Chrome/Edge on Windows also implements navigator.share() (it
+  // opens the Windows Share flyout), but that flyout has no "Print" entry
+  // and would silently replace the desktop print flow that's already known
+  // to work with a worse one. So the share-first path is gated to actual
+  // mobile devices, not just feature support.
+  function isMobileDevice() {
+    if (navigator.userAgentData && typeof navigator.userAgentData.mobile === "boolean") {
+      return navigator.userAgentData.mobile;
+    }
+    if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return true;
+    // iPadOS Safari reports a desktop Mac user agent by default; tell it
+    // apart from a real Mac by touch support (Macs aren't multi-touch).
+    if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return true;
+    return false;
+  }
+
+  var SHARE_CAPABLE = isMobileDevice() && canShareFiles();
 
   if (!config) {
     loadingEl.innerHTML = '<div>Book not found. <a href="index.html" style="color:#e8e6e1;">Return to Main Menu</a></div>';
@@ -30,6 +85,72 @@
   var PAGE_WIDTH = config.width;
   var PAGE_HEIGHT = config.height;
   var PAGE_RATIO = PAGE_WIDTH / PAGE_HEIGHT;
+
+  // Fits the artwork's true aspect ratio into the viewport, then uses it to
+  // size the zoom frame's background image (no separate cropped image files
+  // exist - the enlarged view always shows the whole page image).
+  function positionZoomFrame() {
+    var availW = window.innerWidth;
+    var availH = window.innerHeight;
+    var totalW, totalH;
+    if (availW / availH > PAGE_RATIO) {
+      totalH = availH;
+      totalW = totalH * PAGE_RATIO;
+    } else {
+      totalW = availW;
+      totalH = totalW / PAGE_RATIO;
+    }
+    zoomFrameEl.style.width = Math.round(totalW) + "px";
+    zoomFrameEl.style.height = Math.round(totalH) + "px";
+    zoomFrameEl.style.backgroundSize = "100% 100%";
+  }
+
+  // Renders the artwork into an offscreen canvas so it can be printed as a
+  // real <img>. Browsers print background images only if the user opts in
+  // via the print dialog's "Background graphics" toggle (off by default in
+  // Chrome, Firefox, and Safari), so printing the on-screen zoom-frame
+  // directly would silently come out blank for most people.
+  function preparePrintImage(src, onReady) {
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      canvas.toBlob(
+        function (blob) {
+          onReady(canvas.toDataURL("image/jpeg", 0.92), blob);
+        },
+        "image/jpeg",
+        0.92
+      );
+    };
+    img.src = src;
+  }
+
+  function openZoom(src) {
+    zoomFrameEl.style.backgroundImage = "url(" + src + ")";
+    positionZoomFrame();
+    zoomOverlayEl.classList.add("visible");
+    zoomOverlayEl.setAttribute("aria-hidden", "false");
+    zoomOpen = true;
+    printBtn.disabled = true;
+    preparePrintImage(src, function (dataUrl, blob) {
+      printFrameEl.src = dataUrl;
+      currentPrintBlob = blob;
+      printBtn.disabled = false;
+    });
+  }
+
+  function closeZoom() {
+    zoomOpen = false;
+    zoomOverlayEl.classList.remove("visible");
+    zoomOverlayEl.setAttribute("aria-hidden", "true");
+    printBtn.disabled = true;
+    printFrameEl.removeAttribute("src");
+    currentPrintBlob = null;
+    printStatusEl.classList.remove("visible");
+  }
 
   // Page definitions: cover (no number) -> content pages (numbered from 1,
   // overlaid at render time) -> generated instructions page (no number).
@@ -117,6 +238,63 @@
       surface.appendChild(num);
 
       var hotspots = config.hotspots && config.hotspots[def.number];
+      // A page with a video hotspot supports only that video interaction -
+      // no image enlargement/print, so the two overlays can't fight over
+      // the same click (e.g. Volume 4, page 14, but detected generically
+      // from the volume's hotspot config rather than hard-coded).
+      var isVideoPage = !!(hotspots && hotspots.some(function (hs) {
+        return !!hs.video;
+      }));
+
+      if (!isVideoPage) {
+        // Covers the whole artwork so clicking/tapping it opens the enlarged
+        // view. Uses the same stopPropagation pattern as the video hotspots
+        // below (StPageFlip listens for mousedown/touchstart on the book to
+        // start a click-to-turn-page gesture, so all of these need to be
+        // stopped here, not just "click").
+        var zoomHotspot = document.createElement("div");
+        zoomHotspot.className = "artwork-zoom-hotspot";
+        zoomHotspot.style.left = "0%";
+        zoomHotspot.style.top = "0%";
+        zoomHotspot.style.width = "100%";
+        zoomHotspot.style.height = "100%";
+        zoomHotspot.setAttribute("role", "button");
+        zoomHotspot.setAttribute("tabindex", "0");
+        zoomHotspot.setAttribute("aria-label", "View enlarged artwork");
+        var zoomTouchActivated = false;
+        zoomHotspot.addEventListener("mousedown", function (e) {
+          e.stopPropagation();
+        });
+        zoomHotspot.addEventListener("mouseup", function (e) {
+          e.stopPropagation();
+        });
+        zoomHotspot.addEventListener("touchstart", function (e) {
+          e.stopPropagation();
+        });
+        zoomHotspot.addEventListener("touchend", function (e) {
+          e.stopPropagation();
+          e.preventDefault();
+          zoomTouchActivated = true;
+          openZoom(def.src);
+        });
+        zoomHotspot.addEventListener("click", function (e) {
+          e.stopPropagation();
+          if (zoomTouchActivated) {
+            zoomTouchActivated = false;
+            return;
+          }
+          openZoom(def.src);
+        });
+        zoomHotspot.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            openZoom(def.src);
+          }
+        });
+        surface.appendChild(zoomHotspot);
+      }
+
       if (hotspots) {
         hotspots.forEach(function (hs) {
           var spot = document.createElement("div");
@@ -220,7 +398,7 @@
   }
 
   function goNext() {
-    if (!pageFlip || videoOverlayOpen) return;
+    if (!pageFlip || videoOverlayOpen || zoomOpen) return;
     if (pageFlip.getCurrentPageIndex() >= LAST_INDEX) {
       goToMenu();
       return;
@@ -229,7 +407,7 @@
   }
 
   function goPrev() {
-    if (!pageFlip || videoOverlayOpen) return;
+    if (!pageFlip || videoOverlayOpen || zoomOpen) return;
     if (pageFlip.getCurrentPageIndex() <= 0) {
       goToMenu();
       return;
@@ -330,7 +508,7 @@
       }
       return;
     }
-    if (!pageFlip) return;
+    if (zoomOpen || !pageFlip) return;
     if (e.key === "ArrowRight" || e.key === "PageDown") {
       goNext();
     } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
@@ -339,6 +517,74 @@
       pageFlip.turnToPage(0);
     } else if (e.key === "End") {
       pageFlip.turnToPage(LAST_INDEX);
+    }
+  });
+
+  window.addEventListener("resize", function () {
+    if (zoomOpen) positionZoomFrame();
+  });
+
+  zoomOverlayEl.addEventListener("click", closeZoom);
+
+  // Confirms window.print() actually opened/closed a dialog, as opposed to
+  // the call silently no-op'ing (which happens in some Android WebViews and
+  // in some "added to home screen" standalone contexts with no browser
+  // chrome to host the print UI).
+  window.addEventListener("beforeprint", function () {
+    showPrintStatus("Print dialog opened.");
+  });
+  window.addEventListener("afterprint", function () {
+    showPrintStatus("Print dialog closed.");
+  });
+
+  printBtn.addEventListener("click", function (e) {
+    // Stop the click from bubbling to zoomOverlayEl's own listener, which
+    // would otherwise treat this click as "close the zoom" (same pattern
+    // used for the artwork hotspot itself).
+    e.stopPropagation();
+    showPrintStatus("Tap registered…");
+
+    // Prefer the share sheet where it can actually share a file: far more
+    // reliable on mobile (Save Image / AirPrint / send-to-printer-app all
+    // live there) than window.print(), whose in-page print support is
+    // inconsistent across Android builds and doesn't work at all inside
+    // browser chrome-less contexts. Both calls happen synchronously inside
+    // this click handler (not after an await or a timeout) because both
+    // require an active user gesture to be allowed to run at all.
+    if (SHARE_CAPABLE && currentPrintBlob) {
+      try {
+        var file = new File([currentPrintBlob], "artwork.jpg", { type: "image/jpeg" });
+        if (navigator.canShare({ files: [file] })) {
+          showPrintStatus("Opening share sheet…");
+          navigator
+            .share({ files: [file], title: config.title })
+            .then(function () {
+              showPrintStatus("Shared.");
+            })
+            .catch(function (err) {
+              if (err && err.name === "AbortError") {
+                // The user dismissed the share sheet themselves - not a failure.
+                showPrintStatus("Share cancelled.");
+              } else {
+                console.error("[print] share failed, falling back to print", err);
+                showPrintStatus("Share failed, trying print…");
+                window.print();
+              }
+            });
+          return;
+        }
+      } catch (err) {
+        // Fall through to window.print() below rather than aborting silently.
+        console.error("[print] share setup threw, falling back to print", err);
+      }
+    }
+
+    showPrintStatus("Opening print dialog…");
+    try {
+      window.print();
+    } catch (err) {
+      console.error("[print] window.print() threw", err);
+      showPrintStatus("Print failed: " + (err && err.message ? err.message : "unknown error"));
     }
   });
 })();
