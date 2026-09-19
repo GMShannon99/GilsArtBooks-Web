@@ -193,6 +193,76 @@ body.menu-body {
   outline: none;
 }
 
+/* Covers the full artwork so clicking (or tapping) anywhere on the page
+   image opens the enlarged view, instead of a highlighted sub-region like
+   the video hotspots above - so no hover highlight is drawn. */
+.artwork-zoom-hotspot {
+  position: absolute;
+  cursor: zoom-in;
+}
+
+.zoom-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.zoom-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.zoom-frame {
+  background-repeat: no-repeat;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+  touch-action: none;
+}
+
+.zoom-frame.zoomed-in {
+  cursor: grab;
+}
+
+.zoom-frame.dragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+.zoom-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(20, 20, 22, 0.55);
+  color: #e8e6e1;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  transition: background 0.15s ease;
+}
+
+.zoom-close-btn:hover {
+  background: rgba(40, 40, 44, 0.8);
+}
+
 #video-overlay {
   position: fixed;
   inset: 0;
